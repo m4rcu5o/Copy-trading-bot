@@ -25,4 +25,6 @@ Solana trading bot trading bot (Raydium & Pump.fun) which subscribe target walle
 
 ## Contact
 
+Contact me for full trading services.😃
+
 [Telegram](https://t.me/m4rcu5sol) | [X](https://x.com/m4rcu5sol)

@@ -1,30 +1,70 @@
-# **Solana Copy trading Bot**
+# ⚡ Solana Copy Trading Bot
 
-Solana trading bot trading bot (Raydium & Pump.fun) which subscribe target wallet's trading activity and copy transactions on Solana Raydium & PumpFun. as target trader.
+A high-performance **Solana Copy Trading Bot** that automatically mirrors trades from a target wallet on **Raydium** and **Pump.fun** in real time.  
+Powered by **Helius Geyser WebSocket streaming** with ultra‑low latency filtering (0.3ms), this bot tracks a trader's on-chain activity and replicates their transactions instantly.
 
-1. ## Transaction
-- Target Wallet: GXAtmWucJEQxuL8PtpP13atoFi78eM6c9Cuw9fK9W4na
-- Copy Wallet: HqbQwVM2fhdYJXqFhBE68zX6mLqCWqEqdgrtf2ePmjRz
-- Target Transaction: https://solscan.io/tx/2nNc1DsGxGoYWdweZhKQqnngfEjJqDA4zxnHar2S9bsAYP2csbLRgMpUmy68xuG1RaUGV9xb9k7dGdXcjgcmtJUh
-- Copied Transaction: https://solscan.io/tx/n2qrk4Xg3gfBBci6CXGKFqcTC8695sgNyzvacPHVaNkiwjWecwvY5WdNKgtgJhoLJfug6QkXQuaZeB5hVazW6ev
+---
 
-2. ## **Features**
+## 🔍 Core Concept
 
-- ### Real-time WebSocket Streaming:
+This bot monitors a **target wallet’s transactions** on Solana and immediately broadcasts the **same trade logic** from your own wallet.  
+Supports both:
 
-  Connects to Solana's blockchain through Helius geyser RPC WebSocket and listens for new transactions, specifically Tx that target wallet is singer
-- ### Filter Transactions:
+- **Pump.fun buys & sells**  
+- **Raydium swaps & liquidity interactions**
 
-  Filters transactions as soon as possible and fast.
-  maybe it takes about 0.3ms totally
+---
 
-- ### Make Copy transaction:
+## 🚀 Features
 
-  Using pumpfun program id and raydium module you can make copy trasaction.
+### ⚡ 1. Real-Time WebSocket Streaming  
+Connects to Solana using **Helius Geyser WebSocket RPC** and listens to all transactions signed by the target wallet.
 
+### 🧠 2. Ultra-Fast Transaction Filtering  
+The bot filters relevant transactions with **~0.3ms latency** to ensure near-instant response times.
 
-## Contact
+### 🤖 3. Automatic Copy Trading  
+Recreates the same trade on your own wallet using:
 
-Contact me for full trading services.😃
+- **Pump.fun Program ID**
+- **Raydium Swap/AMM modules**
 
-[Telegram](https://t.me/idioRusty)
+### 🔒 4. Safe Transaction Handling  
+Includes logic to avoid duplicate execution, invalid swaps, and outdated instructions.
+
+---
+
+## 📌 Example
+
+**Target Wallet:**  
+`GXAtmWucJEQxuL8PtpP13atoFi78eM6c9Cuw9fK9W4na`
+
+**Copy Wallet:**  
+`HqbQwVM2fhdYJXqFhBE68zX6mLqCWqEqdgrtf2ePmjRz`
+
+| Type | Transaction |
+|------|-------------|
+| 🎯 Target TX | https://solscan.io/tx/2nNc1DsGxGoYWdweZhKQqnngfEjJqDA4zxnHar2S9bsAYP2csbLRgMpUmy68xuG1RaUGV9xb9k7dGdXcjgcmtJUh |
+| 🤖 Copied TX | https://solscan.io/tx/n2qrk4Xg3gfBBci6CXGKFqcTC8695sgNyzvacPHVaNkiwjWecwvY5WdNKgtgJhoLJfug6QkXQuaZeB5hVazW6ev |
+
+---
+
+## 📂 Tech Stack
+
+- **Solana Web3.js**
+- **Helius Geyser WebSocket**
+- **Raydium SDK**
+- **Pump.fun Program** integration
+- **Node.js**
+
+---
+
+## 📞 Contact
+
+For full trading bot setups, integrations, or custom development:
+
+👉 **Telegram:** https://t.me/idioRusty
+
+---
+
+If this project helps you, please ⭐ star the repo!

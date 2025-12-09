@@ -1,31 +1,60 @@
-use copy_trading_bot::common::utils::{
-    create_nonblocking_rpc_client, create_rpc_client, import_env_var, import_wallet, AppState,
+use bincode::Options;
+use jito_json_rpc_client::jsonrpc_client::rpc_client::RpcClient as JitoRpcClient;
+use temp::common::utils::{
+    create_arc_rpc_client, create_nonblocking_rpc_client, import_arc_wallet, import_env_var,
+    import_wallet, log_message, AppState,
 };
-use copy_trading_bot::dex::raydium::{get_pool_state, get_pool_state_by_mint};
-use copy_trading_bot::engine::swap::raydium_swap;
-use copy_trading_bot::ray_parse::tx_parse::{self, tx_parse};
+use temp::core::token::get_account_info;
+use temp::core::tx::jito_confirm;
+use temp::engine::swap::{pump_swap, raydium_swap};
+// use copy_trading_bot::dex::pump::pump_sdk_swap;
 use dotenv::dotenv;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
-use solana_client::rpc_client::{self, RpcClient};
-use solana_client::rpc_config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter};
-use solana_sdk::commitment_config::{self, CommitmentConfig};
+use serde::Serialize;
+use serde_json::Value;
+use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signer::Signer;
+use solana_sdk::transaction::VersionedTransaction;
+use spl_associated_token_account::get_associated_token_address;
 use std::env;
 use std::str::FromStr;
+use std::sync::{Arc, LazyLock};
+use tokio::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
+
+#[derive(Serialize)]
+struct SwapRequest {
+    quoteResponse: serde_json::Value, // You may deserialize it into a specific struct if known
+    userPublicKey: String,
+    wrapAndUnwrapSol: bool,
+    dynamicComputeUnitLimit: bool,
+    prioritizationFeeLamports: u64,
+}
 #[tokio::main]
 
 async fn main() {
     dotenv().ok();
+    let target = env::var("TARGET_PUBKEY").expect("TARGET not set");
 
-    let sol_address = env::var("SOL_PUBKEY").expect("SOL_PUBKEY not set");
-    let rpc_https_url = env::var("RPC_ENDPOINT").expect("RPC_ENDPOINT not set");
-    let rpc_client = RpcClient::new(rpc_https_url.clone());
+    let rpc_client = create_arc_rpc_client().unwrap();
+    let rpc_nonblocking_client = create_nonblocking_rpc_client().await.unwrap();
+    let wallet = import_arc_wallet().unwrap();
+
+    let state = AppState {
+        rpc_client,
+        rpc_nonblocking_client,
+        wallet,
+    };
+    pub static BLOCK_ENGINE_URL: LazyLock<String> =
+        LazyLock::new(|| import_env_var("JITO_BLOCK_ENGINE_URL"));
+    let jito_client = Arc::new(JitoRpcClient::new(format!(
+        "{}/api/v1/bundles",
+        *BLOCK_ENGINE_URL
+    )));
     let unwanted_key = env::var("JUP_PUBKEY").expect("JUP_PUBKEY not set");
-    let target = env::var("TARGET_PUBKEY").expect("TARGET_PUBKEY not set");
+    let ws_url = env::var("RPC_WEBSOCKET_ENDPOINT").expect("RPC_WEBSOCKET_ENDPOINT not set");
 
-    let ws_url = "wss://atlas-mainnet.helius-rpc.com/?api-key=27fd6baa-75e9-4d39-9832-d5a43419ad78";
     let (ws_stream, _) = connect_async(ws_url)
         .await
         .expect("Failed to connect to WebSocket server");
@@ -39,7 +68,7 @@ async fn main() {
 
             {
                 "failed": false,
-                "accountInclude": ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", target],
+                "accountInclude": ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"],
                 "accountExclude": [unwanted_key],
                 // Optionally specify accounts of interest
             },
@@ -57,151 +86,149 @@ async fn main() {
         .await
         .expect("Failed to send subscription message");
 
+    let _ = log_message("---------------------   Copy-trading-bot start!!!  ------------------\n")
+        .await;
+
     // Listen for messages
     while let Some(Ok(msg)) = read.next().await {
         if let WsMessage::Text(text) = msg {
             let json: Value = serde_json::from_str(&text).unwrap();
 
-            // println!("json: {:#?}", json);
+            let sig = json["params"]["result"]["signature"]
+                .as_str()
+                .unwrap_or_default();
+            let timestamp = Instant::now();
 
-            let sig = json["params"]["result"]["signature"].to_string();
-            // let mut ixs: Vec<_> = Vec::new();
-            if let Some(inner_instructions) =
-                json["params"]["result"]["transaction"]["meta"]["innerInstructions"].as_array()
-            {
-                // println!("log_str: {:#?}", inner_instructions.clone());
-                // Iterate over logs and check for unwanted_key
-                for inner_instruction in inner_instructions.iter() {
-                    // Try to extract the string representation of the log
+            // filter tx raydium part
+            tx_ray();
 
-                    if let Some(instructions) = inner_instruction["instructions"].as_array() {
-                        for instruction in instructions.iter() {
-                            if instruction["parsed"]["type"] == "transfer".to_string()
-                                && instruction["parsed"]["info"]["authority"] == target
-                            {
-                                let amount_in = instructions[0]["parsed"]["info"]["amount"]
-                                    .as_str()
-                                    .unwrap_or("0.0")
-                                    .to_string();
-                                let amount_out = instructions[1]["parsed"]["info"]["amount"]
-                                    .as_str()
-                                    .unwrap_or("0.0")
-                                    .to_string();
-                                let in_ata = instructions[0]["parsed"]["info"]["destination"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string();
-
-                                let out_ata = instructions[1]["parsed"]["info"]["source"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string();
-                                let pubkey_in_ata = match Pubkey::from_str(&in_ata) {
-                                    Ok(pubkey) => pubkey,
-                                    Err(e) => {
-                                        println!("Failed to parse Pubkey in: {}", e);
-                                        return;
-                                    }
-                                };
-                                let pubkey_out_ata = match Pubkey::from_str(&out_ata) {
-                                    Ok(pubkey) => pubkey,
-                                    Err(e) => {
-                                        println!("Failed to parse Pubkey out: {}", e);
-                                        return;
-                                    }
-                                };
-
-                                let in_data = match rpc_client.get_token_account(&pubkey_in_ata) {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        println!("Failed to parse Pubkey in_token: {}", e);
-                                        return;
-                                    }
-                                };
-                                let out_data = match rpc_client.get_token_account(&pubkey_out_ata) {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        println!("Failed to parse Pubkey out_token: {}", e);
-                                        return;
-                                    }
-                                };
-                                let in_mint = match in_data {
-                                    Some(mint) => mint,
-                                    None => return,
-                                };
-                                let out_mint = match out_data {
-                                    Some(mint) => mint,
-                                    None => return,
-                                };
-                                println!("in_mint: {:#?}", in_mint.mint);
-                                println!("in_amount: {:#?}", amount_in);
-                                println!("out_mint: {:#?}", out_mint.mint);
-                                println!("out_amount: {:#?}", amount_out);
-                                println!("signature: {:#?}", json["params"]["result"]["signature"]);
-                                let mut param_mint = String::new();
-                                let mut param_dirs = String::new();
-                                let in_deciaml = in_mint.token_amount.decimals;
-                                let param_amount_in = match amount_in.parse::<f64>() {
-                                    Ok(num) => num,
-                                    Err(e) => return,
-                                };
-                                if in_mint.mint == sol_address {
-                                    param_mint = out_mint.mint;
-                                    param_dirs = "buy".to_string();
-                                } else {
-                                    param_mint = in_mint.mint;
-                                    param_dirs = "sell".to_string();
-                                }
-                                swap_to_events(
-                                    param_mint,
-                                    param_amount_in / 10_f64.powf(in_deciaml as f64),
-                                    param_dirs,
-                                )
-                                .await;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+            // filter tx pumpfun part
+            tx_pump();
         }
     }
 }
 
-// Listen all events with websocket
+pub async fn tx_ray(
+    json: Value,
+    target: String,
+    timestamp: Instant,
+    state: AppState,
+    jito_client: Arc<JitoRpcClient>,
+) {
+    // parsing tx part
 
-pub async fn swap_to_events(mint: String, amount_in: f64, dirs: String) {
-    let rpc_client = create_rpc_client().unwrap();
-    let rpc_nonblocking_client = create_nonblocking_rpc_client().await.unwrap();
-    let wallet = import_wallet().unwrap();
-    let in_type = "qty";
-    let slippage = import_env_var("SLIPPAGE").parse::<u64>().unwrap_or(5);
-    let use_jito = true;
+    if  {
+        dirs = "buy".to_string();
+        swap_to_events_on_raydium(
+            mint,
+            amount_in * percent / 100,
+            dirs,
+            pool_id,
+            timestamp.clone(),
+            jito_client.clone(),
+            state.clone(),
+        )
+        .await;
+    } else {
+        dirs = "sell".to_string();
+        swap_to_events_on_raydium(
+            mint,
+            amount_in * percent / 100,
+            dirs,
+            pool_id,
+            timestamp.clone(),
+            jito_client.clone(),
+            state.clone(),
+        )
+        .await;
+    }
+}
 
-    let (pool_id, pool_state) = match get_pool_state_by_mint(rpc_client.clone(), &mint).await {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("Error fetching pool state: {}", err);
-            return; // Propagates the error if needed
-        }
-    };
-    let state = AppState {
-        rpc_client,
-        rpc_nonblocking_client,
-        wallet,
-    };
+pub async fn tx_pump(
+    json: Value,
+    target: String,
+    timestamp: Instant,
+    state: AppState,
+    jito_client: Arc<JitoRpcClient>,
+) {
+    // Iterate over logs and check for unwanted_key
 
-    println!("amount_in: {:#?}", amount_in.clone());
-    let res = raydium_swap(
+    if  {
+        dirs = "buy".to_string();
+        swap_to_events_on_pump(
+            mint,
+            amount_in * percent / 100,
+            dirs,
+            timestamp.clone(),
+            jito_client.clone(),
+            state.clone(),
+        )
+        .await;
+    } else {
+        dirs = "sell".to_string();
+
+        swap_to_events_on_pump(
+            mint,
+            amount_in * percent / 100,
+            dirs,
+            timestamp.clone(),
+            jito_client.clone(),
+            state.clone(),
+        )
+        .await;
+    }
+}
+
+pub async fn swap_on_jup(mint: String, dir: String, amount: u64) {
+    // get tx
+    jito_confirm()
+}
+pub async fn swap_to_events_on_pump(
+    mint: String,
+    amount_in: u64,
+    dirs: String,
+    timestamp: Instant,
+    jito_client: Arc<JitoRpcClient>,
+    state: AppState,
+) {
+    println!("2: {:#?}", timestamp.elapsed().clone());
+
+    let slippage = 10000;
+    println!("2.1: {:#?}", timestamp.elapsed());
+    let res = pump_swap(
         state,
-        amount_in.clone(),
+        amount_in,
         &dirs,
-        in_type,
         slippage,
-        use_jito,
-        pool_id,
-        pool_state,
+        &mint,
+        jito_client,
+        timestamp.clone(),
     )
     .await;
-    println!("res: {:#?}", res);
+}
+
+pub async fn swap_to_events_on_raydium(
+    mint: String,
+    amount_in: u64,
+    dirs: String,
+    pool_id: String,
+    timestamp: Instant,
+    jito_client: Arc<JitoRpcClient>,
+    state: AppState,
+) {
+    println!("2: {:#?}", timestamp.elapsed().clone());
+
+    let slippage = 10000;
+    println!("2.1: {:#?}", timestamp.elapsed());
+    let res = raydium_swap(
+        state,
+        amount_in,
+        &dirs,
+        pool_id,
+        slippage,
+        &mint,
+        jito_client,
+        timestamp.clone(),
+    )
+    .await;
 }

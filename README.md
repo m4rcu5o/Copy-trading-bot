@@ -63,7 +63,7 @@ Includes logic to avoid duplicate execution, invalid swaps, and outdated instruc
 
 For full trading bot setups, integrations, or custom development:
 
-👉 **Telegram:** https://t.me/idioRusty
+👉 **Telegram:** [RRR](https://t.me/microRustyme)
 
 ---
 

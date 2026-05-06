@@ -1,6 +1,6 @@
-# ⚡ Solana Copy Trading Bot
+# ⚡ Solana CopyTrading Bot
 
-A high-performance **Solana Copy Trading Bot** that automatically mirrors trades from a target wallet on **Raydium** and **Pump.fun** in real time.  
+A high-performance **Solana CopyTrading Bot** that automatically mirrors trades from a target wallet on **Raydium** and **Pump.fun** in real time.  
 Powered by **Helius Geyser WebSocket streaming** with ultra‑low latency filtering (0.3ms), this bot tracks a trader's on-chain activity and replicates their transactions instantly.
 
 ---
